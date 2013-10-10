@@ -1,44 +1,13 @@
 #define PROGRAM_FILE "rng.cl"
 #define KERNEL_FUNC "rng"
-#define ARRAY_SIZE 1024*1024
-
-#include <math.h>
+#define ARRAY_SIZE 1
+#include <CL/cl.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <time.h>
 
-#ifdef MAC
-#include <OpenCL/cl.h>
-#else				
-#include <CL/cl.h>
-#endif				
 
-/* Find a GPU or CPU associated with the first available platform */
-cl_device_id create_device() {
-	cl_platform_id platform;
-	cl_device_id dev;
-	int err;
 
-	/* Identify a platform */
-	err = clGetPlatformIDs(1, &platform, NULL);
-	if (err < 0) {
-		perror("Couldn't identify a platform");
-		exit(1);
-	}
-
-	/* Access a device */
-	err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &dev, NULL);
-	if (err == CL_DEVICE_NOT_FOUND) {
-		err =
-		    clGetDeviceIDs(platform, CL_DEVICE_TYPE_CPU, 1, &dev, NULL);
-	}
-	if (err < 0) {
-		perror("Couldn't access any devices");
-		exit(1);
-	}
-	return dev;
-}
 
 /* Create program from a file and compile it */
 cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename) {
@@ -89,109 +58,276 @@ cl_program build_program(cl_context ctx, cl_device_id dev, const char *filename)
 	}
 	return program;
 }
-int main() {
 
-	/* OpenCL structures */
-	cl_device_id device;
-	cl_context context;
-	cl_program program;
-	cl_kernel kernel;
-	cl_command_queue queue;
-	cl_int i, j, err;
-	size_t local_size, global_size;
+void exitOnFail(cl_int status, const char* message)
+{
+    if (CL_SUCCESS != status)
+    {
+        printf("error: %s\n", message);
+        exit(-1);
+    }
+}
 
-	/* Data and buffers */
-	int data[ARRAY_SIZE];
-	float sum[2], total, actual_sum;
-	cl_mem input_buffer, sum_buffer;
-	cl_int num_groups;
+int main(int argc, char *argv[])
+{
+    // return code used by OpenCL API
+    cl_int status;
 
-	/* Initialize data */
+cl_program program;
+cl_mem input_buffer;
+    // wait event synchronization handle used by OpenCL API
+    cl_event event;
+ 
+    cl_int err;
+
+    ////////////////////////////////////////
+    // OpenCL platforms
+
+    // determine number of platforms
+    cl_uint numPlatforms;
+    status = clGetPlatformIDs(0, NULL, &numPlatforms);
+    exitOnFail(status, "number of platforms");
+
+    // get platform IDs
+    cl_platform_id platformIDs[numPlatforms];
+    status = clGetPlatformIDs(numPlatforms, platformIDs, NULL);
+    exitOnFail(status, "get platform IDs");
+
+    ////////////////////////////////////////
+    // OpenCL devices
+
+    // look for a CPU and GPU compute device
+    cl_platform_id cpuPlatformID, gpuPlatformID;
+    cl_device_id cpuDeviceID, gpuDeviceID;
+    int isCPU = 0, isGPU = 0;
+
+    // iterate over platforms
+    for (size_t i = 0; i < numPlatforms; i++)
+    {
+        // determine number of devices for a platform
+        cl_uint numDevices;
+        status = clGetDeviceIDs(platformIDs[i],
+                                CL_DEVICE_TYPE_ALL,
+                                0,
+                                NULL,
+                                &numDevices);
+        if (CL_SUCCESS == status)
+        {
+            // get device IDs for a platform
+            cl_device_id deviceIDs[numDevices];
+            status = clGetDeviceIDs(platformIDs[i],
+                                    CL_DEVICE_TYPE_ALL,
+                                    numDevices,
+                                    deviceIDs,
+                                    NULL);
+            if (CL_SUCCESS == status)
+            {
+                // iterate over devices
+                for (size_t j = 0; j < numDevices; j++)
+                {
+                    cl_device_type deviceType;
+                    status = clGetDeviceInfo(deviceIDs[j],
+                                             CL_DEVICE_TYPE,
+                                             sizeof(cl_device_type),
+                                             &deviceType,
+                                             NULL);
+                    if (CL_SUCCESS == status)
+                    {
+                        // first CPU device
+                        if (!isCPU && (CL_DEVICE_TYPE_CPU & deviceType))
+                        {
+                            isCPU = 1;
+                            cpuPlatformID = platformIDs[i];
+                            cpuDeviceID = deviceIDs[j];
+                        }
+
+                        // first GPU device
+                        if (!isGPU && (CL_DEVICE_TYPE_GPU & deviceType))
+                        {
+                            isGPU = 1;
+                            gpuPlatformID = platformIDs[i];
+                            gpuDeviceID = deviceIDs[j];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // pick GPU device if it exists, otherwise use CPU
+    cl_platform_id platformID;
+    cl_device_id deviceID;
+
+    if (isGPU)
+    {
+        platformID = gpuPlatformID;
+        deviceID = gpuDeviceID;
+//	printf("Using GPU of platform %d\n",platformID);
+    }
+    else if (isCPU)
+    {
+        platformID = cpuPlatformID;
+        deviceID = cpuDeviceID;
+    }
+    else
+    {
+        // no devices found
+        exitOnFail(CL_DEVICE_NOT_FOUND, "no devices found");
+    }
+
+
+
+
+
+
+
+   int data[ARRAY_SIZE];
+  int i =0;
+
+/* Initialize data */
 	for (i = 0; i < ARRAY_SIZE; i++) {
-		data[i] = 0.0;
+		data[i] = 0;
 	}
 
-	/* Create device and context */
-	device = create_device();
-	context = clCreateContext(NULL, 1, &device, NULL, NULL, &err);
-	if (err < 0) {
-		perror("Couldn't create a context");
-		exit(1);
-	}
 
-	/* Build program */
-	program = build_program(context, device, PROGRAM_FILE);
 
-	/* Create data buffer */
-	global_size = sizeof(data);
-	local_size = 4;
-	num_groups = global_size / local_size;
-	input_buffer =
+
+
+
+
+
+
+
+
+    ////////////////////////////////////////
+    // OpenCL context
+
+    cl_context_properties props[] = { CL_CONTEXT_PLATFORM,
+                                      (cl_context_properties) platformID,
+                                      0 };
+    cl_context context = clCreateContext(props,
+                                         1,
+                                         &deviceID,
+                                         NULL,
+                                         NULL,
+                                         &status);
+    exitOnFail(status, "create context");
+
+    ////////////////////////////////////////
+    // OpenCL command queue
+
+input_buffer =
 	    clCreateBuffer(context, CL_MEM_COPY_HOST_PTR,
-			   ARRAY_SIZE * sizeof(int), data, &err);
+			   ARRAY_SIZE * sizeof(int), data, &status);
 
-	//sum_buffer = clCreateBuffer(context, CL_MEM_READ_WRITE |
-	//      CL_MEM_COPY_HOST_PTR, num_groups * sizeof(float), sum, &err);
-	if (err < 0) {
-		perror("Couldn't create a buffer");
-		exit(1);
-	};
+   exitOnFail(status, "create input buffer");
 
-	/* Create a command queue */
-	queue = clCreateCommandQueue(context, device, 0, &err);
-	if (err < 0) {
-		perror("Couldn't create a command queue");
-		exit(1);
-	};
 
-	/* Create a kernel */
-	kernel = clCreateKernel(program, KERNEL_FUNC, &err);
+    cl_command_queue queue = clCreateCommandQueue(context,
+                                                  deviceID,
+                                                  0,
+                                                  &status);
+    exitOnFail(status, "create command queue");
+
+
+
+
+
+
+
+    program = build_program(context, deviceID, PROGRAM_FILE);
+
+
+
+    cl_kernel kernel;
+
+
+kernel = clCreateKernel(program, KERNEL_FUNC, &err);
 	if (err < 0) {
 		perror("Couldn't create a kernel");
 		exit(1);
 	};
 
-	/* Create kernel arguments */
-	err = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input_buffer);
+	status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input_buffer);
+    exitOnFail(status, "set arg");
 
-	//err |= clSetKernelArg(kernel, 1, local_size * sizeof(float), NULL);
-	//err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &sum_buffer);
-	if (err < 0) {
-		perror("Couldn't create a kernel argument");
-		exit(1);
-	}
-	int z = 0;
+
+    ////////////////////////////////////////
+    // OpenCL enqueue kernel and wait
+
+    // N work-items in groups of 4
+    const size_t N = 1024*20; 
+    const size_t groupsize = 4;
+    const size_t global[] = { N }, local[] = { groupsize };
+
+
 	while (1) {
+    // enqueue kernel
+    status = clEnqueueNDRangeKernel(queue,
+                                    kernel,
+                                    sizeof(global)/sizeof(size_t),
+                                    NULL,
+                                    global,
+                                    local,
+                                    0,
+                                    NULL,
+                                    &event);
+    exitOnFail(status, "enqueue kernel");
 
-		/* Enqueue kernel */
-		err =
-		    clEnqueueNDRangeKernel(queue, kernel, 1, NULL, &global_size,
-					   &local_size, 0, NULL, NULL);
-		if (err < 0) {
-			perror("Couldn't enqueue the kernel");
-			exit(1);
-		}
+    // wait for kernel, this forces execution
+    status = clWaitForEvents(1, &event);
+    exitOnFail(status, "wait for enqueue kernel");
+   // clReleaseEvent(event);
 
-		/* Read the kernel's output */
-		err =
+    ////////////////////////////////////////
+    // OpenCL read back buffer from device
+
+    // data transfer for array Y
+   /* status = clEnqueueReadBuffer(queue,
+                                 memY,
+                                 CL_FALSE,
+                                 0,
+                                 N * sizeof(float),
+                                 cpuY,
+                                 0,
+                                 NULL,
+                                 &event);*/
+
+
+	status =
 		    clEnqueueReadBuffer(queue, input_buffer, CL_TRUE, 0,
 					sizeof(data), data, 0, NULL, NULL);
 		if (err < 0) {
 			perror("Couldn't read the buffer");
 			exit(1);
 		}
-		for (i = 0; i < 1; i++) {
-			printf("%d\n", data[i]);
-			fflush(stdout);
-		}
-	}
 
-	/* Deallocate resources */
-	/*clReleaseKernel(kernel);
-	   clReleaseMemObject(sum_buffer);
-	   clReleaseMemObject(input_buffer);
-	   clReleaseCommandQueue(queue);
-	   clReleaseProgram(program);
-	   clReleaseContext(context); */
-	return 0;
+for (size_t i = 0; i < ARRAY_SIZE; i++)
+    {
+        printf("%d\n", (int)data[i]);
+	fflush(stdout);
+    }
+   }
+
+   exitOnFail(status, "read Y from device");
+    status = clWaitForEvents(1, &event);
+    exitOnFail(status, "wait for read Y from device");
+    clReleaseEvent(event);
+
+    ////////////////////////////////////////
+    // OpenCL cleanup
+
+    clReleaseKernel(kernel);
+    clReleaseProgram(program);
+    //clReleaseMemObject(memX);
+    //clReleaseMemObject(memY);
+    clReleaseCommandQueue(queue);
+    clReleaseContext(context);
+
+    ////////////////////////////////////////
+    // print computed result
+
+    
+
+    exit(0);
 }
