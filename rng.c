@@ -164,11 +164,6 @@ int main(int argc, char *argv[]) {
 	int data[ARRAY_SIZE];
 	int i = 0;
 
-/* Initialize data */
-	for (i = 0; i < ARRAY_SIZE; i++) {
-		data[i] = 0;
-	}
-
 	////////////////////////////////////////
 	// OpenCL context
 
@@ -187,12 +182,6 @@ int main(int argc, char *argv[]) {
 	////////////////////////////////////////
 	// OpenCL command queue
 
-	input_buffer =
-	    clCreateBuffer(context, CL_MEM_COPY_HOST_PTR,
-			   ARRAY_SIZE * sizeof(int), data, &status);
-
-	exitOnFail(status, "create input buffer");
-
 	cl_command_queue queue = clCreateCommandQueue(context,
 						      deviceID,
 						      0,
@@ -208,9 +197,6 @@ int main(int argc, char *argv[]) {
 		perror("Couldn't create a kernel");
 		exit(1);
 	};
-
-	status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &input_buffer);
-	exitOnFail(status, "set arg");
 
 	////////////////////////////////////////
 	// OpenCL enqueue kernel and wait
