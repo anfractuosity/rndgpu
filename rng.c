@@ -215,13 +215,28 @@ int main(int argc, char *argv[]) {
 	////////////////////////////////////////
 	// OpenCL enqueue kernel and wait
 
-	// N work-items in groups of 4
-	const size_t N = 1024 * 20;
+	// N work-items in groups of groupSize
+	const size_t N = 1024*20;
 	const size_t groupsize = 4;
 	const size_t global[] = { N }, local[] = {
 	groupsize};
 
 	while (1) {
+
+		for (i = 0; i < ARRAY_SIZE; i++) {
+			data[i] = 0;
+		}
+
+		input_buffer =
+		    clCreateBuffer(context, CL_MEM_COPY_HOST_PTR,
+				   ARRAY_SIZE * sizeof(int), data, &status);
+
+		exitOnFail(status, "create input buffer");
+
+		status =
+		    clSetKernelArg(kernel, 0, sizeof(cl_mem), &input_buffer);
+		exitOnFail(status, "set arg");
+
 		// enqueue kernel
 		status = clEnqueueNDRangeKernel(queue,
 						kernel,
@@ -238,24 +253,12 @@ int main(int argc, char *argv[]) {
 		////////////////////////////////////////
 		// OpenCL read back buffer from device
 
-		// data transfer for array Y
-		/* status = clEnqueueReadBuffer(queue,
-		   memY,
-		   CL_FALSE,
-		   0,
-		   N * sizeof(float),
-		   cpuY,
-		   0,
-		   NULL,
-		   &event); */
-
 		status =
 		    clEnqueueReadBuffer(queue, input_buffer, CL_TRUE, 0,
 					sizeof(data), data, 0, NULL, NULL);
-		if (err < 0) {
-			perror("Couldn't read the buffer");
-			exit(1);
-		}
+
+	         exitOnFail(status, "read rnd from device");
+
 
 		for (size_t i = 0; i < ARRAY_SIZE; i++) {
 			printf("%d\n", (int)data[i]);
@@ -263,23 +266,15 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	exitOnFail(status, "read Y from device");
-	status = clWaitForEvents(1, &event);
-	exitOnFail(status, "wait for read Y from device");
-	clReleaseEvent(event);
-
 	////////////////////////////////////////
 	// OpenCL cleanup
 
 	clReleaseKernel(kernel);
 	clReleaseProgram(program);
-	//clReleaseMemObject(memX);
-	//clReleaseMemObject(memY);
 	clReleaseCommandQueue(queue);
 	clReleaseContext(context);
 
 	////////////////////////////////////////
-	// print computed result
 
 	exit(0);
 }
