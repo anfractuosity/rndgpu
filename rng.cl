@@ -1,5 +1,9 @@
 __kernel void rng(__global int* data) {
-        int z =0;
-	for(z = 0; z<10091; z++)
-		data[0] = data[0] ^ 1;
+
+	int z2=0;
+
+    	int z =0;
+	for(z = 0; z<8; z++)
+		data[z2] = data[z2] ^ 1;
+
 }

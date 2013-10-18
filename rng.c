@@ -202,8 +202,8 @@ int main(int argc, char *argv[]) {
 	// OpenCL enqueue kernel and wait
 
 	// N work-items in groups of groupSize
-	const size_t N = 1024*20;
-	const size_t groupsize = 4;
+	const size_t N = ARRAY_SIZE*20000;
+	const size_t groupsize = ARRAY_SIZE*10;
 	const size_t global[] = { N }, local[] = {
 	groupsize};
 
